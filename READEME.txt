@@ -1,0 +1,1 @@
+Il y a un probleme sur la position de l'UI qui peut varier d'un ecran a un autre et nous n'avons pas eu le temps pendant le projet dans trouver la cause.

@@ -1,0 +1,124 @@
+import json
+import maya.cmds as cmds
+import maya.api.OpenMaya as om
+import os
+
+def vec(v):
+    return [float(v[0]), float(v[1]), float(v[2])]
+
+
+def export_mesh(obj):
+    # Vérifier si c'est un mesh
+    shapes = cmds.listRelatives(obj, shapes=True, fullPath=True) or []
+    mesh_shape = None
+    for s in shapes:
+        if cmds.nodeType(s) == "mesh":
+            mesh_shape = s
+            break
+
+    if not mesh_shape:
+        return None
+
+    # DagPath
+    sel = om.MSelectionList()
+    sel.add(mesh_shape)
+    dag = sel.getDagPath(0)
+    mfn_mesh = om.MFnMesh(dag)
+
+    # Vertices
+    points = mfn_mesh.getPoints(om.MSpace.kWorld)
+    vertices_flat = []
+    for p in points:
+        vertices_flat.extend([float(p.x), float(p.y), float(p.z)])
+
+    # Normales par vertex
+    normals_flat = []
+    normals = mfn_mesh.getNormals()  # retourne une liste MVector
+    for n in normals:
+        normals_flat.extend([float(n.x), float(n.y), float(n.z)])
+
+    # Indices de triangles
+    indices_flat = []
+    tri_counts, tri_indices = mfn_mesh.getTriangles()
+    for idx in tri_indices:
+        indices_flat.append(int(idx))
+
+    # UVs
+    uvs_flat = []
+    try:
+        uArray, vArray = mfn_mesh.getUVs()
+        if len(uArray) > 0:
+            for u, v in zip(uArray, vArray):
+                uvs_flat.extend([float(u), float(v)])
+    except:
+        uvs_flat = []
+
+    return {
+        "vertices": vertices_flat,
+        "indices": indices_flat,
+        "uvs": uvs_flat,
+        "normals": normals_flat
+    }
+
+
+def export_scene(filepath):
+    scene_data = {"objects": []}
+
+    all_objects = cmds.ls(type="transform")
+
+    for obj in all_objects:
+        item = {}
+
+        # Nom et type
+        item["name"] = obj
+        shapes = cmds.listRelatives(obj, shapes=True) or []
+        if shapes:
+            item["type"] = cmds.nodeType(shapes[0])
+        else:
+            item["type"] = "transform"
+
+        # Position / rotation / scale
+        pos = cmds.xform(obj, q=True, ws=True, t=True)
+        rot = cmds.xform(obj, q=True, ws=True, ro=True)
+        scale = cmds.xform(obj, q=True, ws=True, s=True)
+
+        # Convert quaternion
+        euler = om.MEulerRotation(
+            math.radians(rot[0]),
+            math.radians(rot[1]),
+            math.radians(rot[2])
+        )
+        quat = euler.asQuaternion()
+
+        item["position"] = [float(pos[0]), float(pos[1]), float(pos[2])]
+        item["rotation"] = [quat.x, quat.y, quat.z, quat.w]
+        item["scale"] = [float(scale[0]), float(scale[1]), float(scale[2])]
+
+        # Parent
+        parent = cmds.listRelatives(obj, parent=True)
+        item["parent"] = parent[0] if parent else None
+
+        # Material
+        material = None
+        if shapes:
+            sg = cmds.listConnections(shapes[0] + ".instObjGroups[0]", type="shadingEngine")
+            if sg:
+                mats = cmds.listConnections(sg[0] + ".surfaceShader")
+                if mats:
+                    material = mats[0]
+        item["material"] = material
+
+        # Mesh data
+        item["mesh"] = export_mesh(obj)
+
+        scene_data["objects"].append(item)
+
+    with open(filepath, "w") as f:
+        json.dump(scene_data, f, indent=4)
+
+    print("Exported:", filepath)
+
+
+# CHEMIN DE SORTIE
+output_path = os.path.join("C:/BlenderExportJson", "maya_scene_v1.json")
+export_scene(output_path)
